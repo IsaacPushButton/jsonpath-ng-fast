@@ -17,10 +17,6 @@ from jsonpath_ng.lexer import JsonPathLexer
 logger = logging.getLogger(__name__)
 
 
-def parse(string):
-    return JsonPathParser().parse(string)
-
-
 class JsonPathParser(object):
     '''
     An LALR-parser for JsonPath
@@ -37,9 +33,10 @@ class JsonPathParser(object):
             )
 
         self.debug = debug
-        self.lexer_class = lexer_class or JsonPathLexer # Crufty but works around statefulness in PLY
+        self.lexer_class = lexer_class or JsonPathLexer  # Crufty but works around statefulness in PLY
+        self.parser = None
 
-    def parse(self, string, lexer = None):
+    def parse(self, string, lexer=None):
         lexer = lexer or self.lexer_class()
         return self.parse_token_stream(lexer.tokenize(string))
 
@@ -56,15 +53,19 @@ class JsonPathParser(object):
         parsing_table_module = '_'.join([module_name, start_symbol, 'parsetab'])
 
         # And we regenerate the parse table every time; it doesn't actually take that long!
-        new_parser = ply.yacc.yacc(module=self,
-                                   debug=self.debug,
-                                   tabmodule = parsing_table_module,
-                                   outputdir = output_directory,
-                                   write_tables=0,
-                                   start = start_symbol,
-                                   errorlog = logger)
+        # What happens if we only generate it once?
+        if not self.parser:
+            new_parser = ply.yacc.yacc(module=self,
+                                       debug=self.debug,
+                                       tabmodule=parsing_table_module,
+                                       outputdir=output_directory,
+                                       write_tables=0,
+                                       start=start_symbol,
+                                       errorlog=logger,
+                                       )
+            self.parser = new_parser
 
-        return new_parser.parse(lexer = IteratorToTokenStream(token_iterator))
+        return self.parser.parse(lexer=IteratorToTokenStream(token_iterator))
 
     # ===================== PLY Parser specification =====================
 
@@ -171,7 +172,7 @@ class JsonPathParser(object):
         "slice : '*'"
         p[0] = Slice()
 
-    def p_slice(self, p): # Currently does not support `step`
+    def p_slice(self, p):  # Currently does not support `step`
         "slice : maybe_int ':' maybe_int"
         p[0] = Slice(start=p[1], end=p[3])
 
@@ -184,6 +185,7 @@ class JsonPathParser(object):
         'empty :'
         p[0] = None
 
+
 class IteratorToTokenStream(object):
     def __init__(self, iterator):
         self.iterator = iterator
@@ -193,6 +195,13 @@ class IteratorToTokenStream(object):
             return next(self.iterator)
         except StopIteration:
             return None
+
+
+parser = JsonPathParser()
+
+
+def parse(string):
+    return parser.parse(string)
 
 
 if __name__ == '__main__':
